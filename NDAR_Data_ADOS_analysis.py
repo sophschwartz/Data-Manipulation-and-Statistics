@@ -21,12 +21,16 @@ from sklearn.decomposition import PCA
 
 """
 NDAR-Defined file names corresponding to each form:
+    #2001 version of ADOS
     ados1_200102: ADOS Mod 1
-    ados1_200701: ADOS (2007) Mod 1
-    ados1_201201: ADOS-2 Mod 1
-
     ados2_200102: ADOS Mod 2
+    
+    # 2007 version of ADOS
+    ados1_200701: ADOS (2007) Mod 1
     ados2_200701: ADOS (2007) Mod 2
+    
+    # 2012 version of ADOS
+    ados1_201201: ADOS-2 Mod 1
     ados2_201201: ADOS-2 Mod 2
 
     same pattern as above for 3 and 4 modules
@@ -63,7 +67,7 @@ def read_tables(data_folder, file_name):
 # %%
 
 
-def extract_variables(data_frame):
+def extract_variables(data_frame, version):
     """
     Extract variables from ADOS tables that are of interest.
 
@@ -88,13 +92,27 @@ def extract_variables(data_frame):
     data_frame2: pandas dataframe
         dataframe of all variables of interest as defined above.
     """
+
     col_demo = ['subjectkey', 'interview_age', 'sex']
-    col_coding = [x for x in data_frame.columns
-                  [data_frame.columns.str.contains('coding')]]
-    # remove items with _cmt in variable for comments
-    col_coding_nocmt = [x for x in col_coding if not any(ignore in x for
-                                                         ignore in ['cmt'])]
-    col_diagnostic = ['scoresumm_adosdiag', 'scoresumm_compscore']
+
+    if (version == 'toddler'):
+        col_coding = [x for x in data_frame.columns
+                      [data_frame.columns.str.contains('adost')]]
+    # remove variables for comments
+        col_coding_nocmt = [x for x in col_coding if not (x[-1].isalpha())]
+        data_frame.rename(columns={
+            'scoresumm_rangeofconcern': 'scoresumm_adosdiag'}, inplace=True)
+        col_diagnostic = ['scoresumm_rangeofconcern']
+
+    else:
+        col_diagnostic = ['scoresumm_adosdiag']
+        col_coding = [x for x in data_frame.columns
+                      [data_frame.columns.str.contains('coding')]]
+        # remove variables for comments
+        col_coding_nocmt = [x for x in col_coding if not any(ignore in x for
+                                                             ignore in ['cmt'])
+                            ]
+
     col_selected = col_demo + col_coding_nocmt + col_diagnostic
     data_frame = data_frame[[c for c in data_frame.columns if c in
                              col_selected]]
@@ -114,30 +132,58 @@ def clean_data(data_frame):
     -------
     data_frame3: pandas dataframe
         1) removes 2nd row that is a variable description row
-        2) removes all subjects with missing data above a threshold of 10 fields
+        2) removes all subjects with missing data above a threshold of 10
+           fields.
         3) fixes typos and inconsistent entries on the scoresumm_adosdiag to be
         one of four options: nonspectrum, autism spectrum, autism, or nan
         4) replaces 999 values with pd.nan
+        5) Note: data entry error with high/mod/low indicators.
+           I am taking the liberty for the following:
+           it is unclear if "low" leads to an asd classification or not,
+           therefore nan.
+           The same is true for 'moderate' and 'high' but the likelihood is
+           much higher, so marked as asd and aut respectively.
     """
     # first row is a descriptive header
     df = data_frame.drop([0])
 
     # options for ados-2 classification should be autism, autism spectrum,
     # and nonspectrum
-    df['scoresumm_adosdiag'] = df['scoresumm_adosdiag'].str.lower()
+    df[scoresumm_adosdiag] = df[scoresumm_adosdiag].str.lower()
     df.scoresumm_adosdiag.replace({'aurism': 'autism'}, regex=True,
                                   inplace=True)
     df.scoresumm_adosdiag.replace({'autsim': 'autism'}, regex=True,
+                                  inplace=True)
+    df.scoresumm_adosdiag.replace({'autim': 'autism'}, regex=True,
+                                  inplace=True)
+    df.scoresumm_adosdiag.replace({'austism': 'autism'}, regex=True,
+                                  inplace=True)
+    df.scoresumm_adosdiag.replace({'autisim': 'autism'}, regex=True,
+                                  inplace=True)
+    df.scoresumm_adosdiag.replace({'austim': 'autism'}, regex=True,
                                   inplace=True)
     df.scoresumm_adosdiag.replace({'specturm': 'spectrum'}, regex=True,
                                   inplace=True)
     df.scoresumm_adosdiag.replace({'spectum': 'spectrum'}, regex=True,
                                   inplace=True)
+    df.scoresumm_adosdiag.replace({'sepctrum': 'spectrum'}, regex=True,
+                                  inplace=True)
+    df.scoresumm_adosdiag.replace(to_replace='autism spect',
+                                  value='autism spectrum', inplace=True)
     df.scoresumm_adosdiag.replace(to_replace='aut', value='autism',
                                   inplace=True)
+    df.scoresumm_adosdiag.replace(
+        to_replace='autism spectrum (mild but present )',
+        value='autism spectrum', inplace=True)
+    df.scoresumm_adosdiag.replace(to_replace='language delay',
+                                  value='nonspectrum', inplace=True)
+    df.scoresumm_adosdiag.replace({'autismspectrum': 'autism spectrum'},
+                                  regex=True, inplace=True)
     df.loc[df['scoresumm_adosdiag'].str.contains('0'),
            'scoresumm_adosdiag'] = 'nonspectrum'
     df.loc[df['scoresumm_adosdiag'].str.contains('no'),
+           'scoresumm_adosdiag'] = 'nonspectrum'
+    df.loc[df['scoresumm_adosdiag'].str.contains('typ'),
            'scoresumm_adosdiag'] = 'nonspectrum'
     df.loc[df['scoresumm_adosdiag'].str.contains('asd'),
            'scoresumm_adosdiag'] = 'autism spectrum'
@@ -147,11 +193,21 @@ def clean_data(data_frame):
            'scoresumm_adosdiag'] = 'autism spectrum'
     df.loc[df['scoresumm_adosdiag'].str.contains('autism-spectrum'),
            'scoresumm_adosdiag'] = 'autism spectrum'
+    df.loc[df['scoresumm_adosdiag'].str.contains('autism  spectrum'),
+           'scoresumm_adosdiag'] = 'autism spectrum'
     df.scoresumm_adosdiag.replace(to_replace='spectrum',
                                   value='autism spectrum', inplace=True)
+    df.loc[df['scoresumm_adosdiag'].str.contains('moderate'),
+           'scoresumm_adosdiag'] = 'autism spectrum'
+    df.loc[df['scoresumm_adosdiag'].str.contains('medium'),
+           'scoresumm_adosdiag'] = 'autism spectrum'
+    df.loc[df['scoresumm_adosdiag'].str.contains('pdd'),
+           'scoresumm_adosdiag'] = 'autism spectrum'
     df.loc[df['scoresumm_adosdiag'].str.contains('2'),
            'scoresumm_adosdiag'] = 'autism'
     df.loc[df['scoresumm_adosdiag'].str.contains('high'),
+           'scoresumm_adosdiag'] = 'autism'
+    df.loc[df['scoresumm_adosdiag'].str.contains('autistic disorder'),
            'scoresumm_adosdiag'] = 'autism'
 
 # deal with nan items
@@ -163,9 +219,7 @@ def clean_data(data_frame):
            'scoresumm_adosdiag'] = ''
     df.loc[df['scoresumm_adosdiag'].str.contains('low'),
            'scoresumm_adosdiag'] = ''
-    df.loc[df['scoresumm_adosdiag'].str.contains('medium'),
-           'scoresumm_adosdiag'] = ''
-    df.loc[df['scoresumm_adosdiag'].str.contains('moderate'),
+    df.loc[df['scoresumm_adosdiag'].str.contains('3'),
            'scoresumm_adosdiag'] = ''
     df.scoresumm_adosdiag.replace(to_replace='', value=np.nan,
                                   inplace=True)
@@ -188,6 +242,8 @@ def descriptive_stats(data_frame):
 
     1. Table of number of participants with each type of ADOS
     2. Table of number of participants with each type of ADOS
+    3. Identify the age at which 95% of all nonspectrum participants are a
+            Mod 3, not a Mod 1 or 2.
     3. Bar plot showing distribution of severity scores for each ADOS module
     4. Table with sex and age information
     5. Return N, sex, and age information to be compared with other modules
@@ -456,8 +512,15 @@ def main():
     data_folder=Path("C://Users/schwart2/ADOSNDA/")
 
     file_name="ados1_201201.txt"
+    file_name="ados2_201201.txt"
+    file_name = "ados3_201201.txt" #4699 usable entries
     data_frame1=read_tables(data_folder, file_name)
-    data_frame2, col_demo, col_coding, col_diag=extract_variables(data_frame1)
+    data_frame2, col_demo, col_coding, col_diag=extract_variables(data_frame1, 'not toddler')
+    
+    file_name = "adost_201201.txt"
+    data_frame1=read_tables(data_folder, file_name)
+    data_frame2, col_demo, col_coding, col_diag=extract_variables(data_frame1, 'toddler')
+    
     data_frame3=clean_data(data_frame2)
     pca_df = pca(data_frame3, col_coding)
     return()
