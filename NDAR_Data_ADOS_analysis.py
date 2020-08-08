@@ -122,7 +122,7 @@ def extract_variables(data_frame, version):
 # %%
 
 
-def clean_data(data_frame):
+def clean_data(data_frame, col_coding):
     """
     Clean data.
     Parameters
@@ -149,25 +149,19 @@ def clean_data(data_frame):
 
     # options for ados-2 classification should be autism, autism spectrum,
     # and nonspectrum
-    df[scoresumm_adosdiag] = df[scoresumm_adosdiag].str.lower()
-    df.scoresumm_adosdiag.replace({'aurism': 'autism'}, regex=True,
-                                  inplace=True)
-    df.scoresumm_adosdiag.replace({'autsim': 'autism'}, regex=True,
-                                  inplace=True)
-    df.scoresumm_adosdiag.replace({'autim': 'autism'}, regex=True,
-                                  inplace=True)
-    df.scoresumm_adosdiag.replace({'austism': 'autism'}, regex=True,
-                                  inplace=True)
-    df.scoresumm_adosdiag.replace({'autisim': 'autism'}, regex=True,
-                                  inplace=True)
-    df.scoresumm_adosdiag.replace({'austim': 'autism'}, regex=True,
-                                  inplace=True)
-    df.scoresumm_adosdiag.replace({'specturm': 'spectrum'}, regex=True,
-                                  inplace=True)
-    df.scoresumm_adosdiag.replace({'spectum': 'spectrum'}, regex=True,
-                                  inplace=True)
-    df.scoresumm_adosdiag.replace({'sepctrum': 'spectrum'}, regex=True,
-                                  inplace=True)
+    # df[scoresumm_adosdiag] = df[scoresumm_adosdiag].str.lower()
+    df.scoresumm_adosdiag = df.scoresumm_adosdiag.str.lower()
+
+    autism_spellings = ['aurism', 'autsim', 'autim', 'austism', 'autisim',
+                        'austim']
+    for aut_string in autism_spellings:
+        df.scoresumm_adosdiag.replace({aut_string: 'autism'}, regex=True,
+                                      inplace=True)
+    spectrum_spellings = ['specturm', 'spectum', 'sepctrum']
+    for spec_string in spectrum_spellings:
+        df.scoresumm_adosdiag.replace({spec_string: 'spectrum'}, regex=True,
+                                      inplace=True)
+
     df.scoresumm_adosdiag.replace(to_replace='autism spect',
                                   value='autism spectrum', inplace=True)
     df.scoresumm_adosdiag.replace(to_replace='aut', value='autism',
@@ -229,12 +223,17 @@ def clean_data(data_frame):
     # threshold for na drop currently set to 0
     # df = df.dropna(axis=0, thresh=10)
     df = df.dropna()
+
+    # convert all rows besides subjectkey, sex, and scoresumm_adosdiag to int32
+    cols_to_conv = col_coding + ['interview_age']
+    df[cols_to_conv] = df[cols_to_conv].apply(pd.to_numeric, errors='coerce')
+
     return df
 
 # %%
 
 
-def descriptive_stats(data_frame):
+def descriptive_stats(data_frame, col_demo):
     """
     Descriptive statistics.
 
@@ -258,6 +257,11 @@ def descriptive_stats(data_frame):
     None.
 
     """
+    data_frame.info()
+    sex_summ = df.groupby('scoresumm_adosdiag')['sex'].value_counts()
+    age_summ = df.groupby('scoresumm_adosdiag')['interview_age'].describe()
+
+    return age_summ, sex_summ
 
 # %%
 
@@ -287,35 +291,33 @@ def pca(data_frame, col_coding):
     n = 2
     pca = PCA(n_components=n)
     principal_components = pca.fit_transform(features_x)
-    
-    target = data_frame.scoresumm_adosdiag.to_numpy()
-    plt.scatter(principal_components[:,0], principal_components[:,1], c = target)
-    plt.xlabel('PC1')
-    plt.ylabel('PC2')
-    
     principal_df = pd.DataFrame(data=principal_components, columns=['pc1',
-                                                                   'pc2'])
-    finalDf = pd.concat([prinipal_df, data_frame[['scoresumm_adosdiag']]],
+                                                                    'pc2'])
+    finalDf = pd.concat([principal_df, data_frame[['scoresumm_adosdiag']]],
                         axis=1)
     return finalDf
 
-#%%
+# %%
+
+
 def visualize_pca(finalDf):
     """
     """
-fig = plt.figure(figsize = (8,8))
-ax = fig.add_subplot(1,1,1) 
-ax.set_xlabel('Principal Component 1', fontsize = 15)
-ax.set_ylabel('Principal Component 2', fontsize = 15)
-ax.set_title('2 component PCA', fontsize = 20)
+
+
+fig = plt.figure(figsize=(8, 8))
+ax = fig.add_subplot(1, 1, 1)
+ax.set_xlabel('Principal Component 1', fontsize=16)
+ax.set_ylabel('Principal Component 2', fontsize=16)
+ax.set_title('2 component PCA', fontsize=20)
 targets = ['nonspectrum', 'autism spectrum', 'autism']
 colors = ['r', 'b', 'g']
 for target, color in zip(targets, colors):
     indicesToKeep = finalDf['scoresumm_adosdiag'] == target
-    ax.scatter(finalDf.loc[indicesToKeep, 'Principal Component 1']
-               , finalDf.loc[indicesToKeep, 'Principal Component 2']
-               , c = color
-               , s = 50)
+    ax.scatter(finalDf.loc[indicesToKeep, 'pc1'],
+               finalDf.loc[indicesToKeep, 'pc2'],
+               c=color,
+               s=50)
 ax.legend(targets)
 ax.grid()
 
@@ -521,6 +523,6 @@ def main():
     data_frame1=read_tables(data_folder, file_name)
     data_frame2, col_demo, col_coding, col_diag=extract_variables(data_frame1, 'toddler')
     
-    data_frame3=clean_data(data_frame2)
+    data_frame3=clean_data(data_frame2, col_coding)
     pca_df = pca(data_frame3, col_coding)
     return()
