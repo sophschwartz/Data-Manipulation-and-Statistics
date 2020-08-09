@@ -7,8 +7,7 @@ Inputs:
     ADOS .txt files directly imported from NDA.NIMH.GOV.
 
 Outputs:
-    Principal Component Analysis of variables driving autism phenotypes and
-    severity.
+    Analysis of variables driving autism phenotypes.
 """
 import matplotlib.pyplot as plt
 import numpy as np
