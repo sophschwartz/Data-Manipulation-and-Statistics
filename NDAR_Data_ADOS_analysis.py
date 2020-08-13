@@ -323,31 +323,6 @@ def kfold_split(dataframe, col_coding):
 # %%
 
 
-def logistic_regression(data_frame):
-    """
-    Logistic regression to classify groups based on ADOS code data.
-
-    Use sklearn.linear_model.LogisticRegression
-    *** Figure out where LEARNING RATE gets defined in all of these functions
-    *** Also may be based on step-size or shrinkage
-    Parameters
-    ----------
-    data_frame : TYPE
-        DESCRIPTION.
-
-    Returns
-    -------
-    None.
-
-    """
-    from sklearn.linear_model import LogisticRegression
-    logreg = LogisticRegression()
-    scores_logreg, report_logreg = cross_validation(x, y, logreg)
-    print(scores)
-
-# %%
-
-
 def pca(x_train, x_test, y_train, y_test):
     """
     Principal component analysis on ADOS codes.
