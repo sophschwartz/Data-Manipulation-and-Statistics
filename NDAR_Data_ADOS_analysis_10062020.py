@@ -1240,9 +1240,25 @@ def svc(x_train, y_train, x_test, x_train, grid_result):
 
 
 # %%
+def initial_pipeline(file_name):
+    """
+    Documentation here
+    """
+    data_folder = Path("C://Users/schwart2/ADOSNDA/")
+    data_frameA = read_tables(data_folder, file_name)
+    data_frameB, col_demo, col_coding, col_diag = extract_variables(
+        data_frameA, 'not toddler', 'ndar')
+    data_frameC, df_for_module_analysis_1 = clean_data(
+        data_frameB, col_coding)
+    data_frameD = relabel_autismspectrum(data_frameC, col_diag)
+    data_frameE = format_datatypes(data_frameD)
+    return data_frameD2, data_frameE, df_for_module_analysis
 
 
-def ados_main(file_name, module):
+# %%
+
+
+def ados_main():
     """
     Implementation of analysis.
 
@@ -1257,9 +1273,7 @@ def ados_main(file_name, module):
     Results from analyses.
 
     """
-
-    data_folder = Path("C://Users/schwart2/ADOSNDA/")
-
+        
     # Toddler Module
     # file_name = "adost_201201.txt"
     # data_frameTA = read_tables(data_folder, file_name)
@@ -1268,15 +1282,10 @@ def ados_main(file_name, module):
     # data_frameTC = clean_data(data_frameTB, col_coding)
 
     # # Module 1
+    # Module 1
     file_name = "ados1_201201.txt"
-    data_frame1A = read_tables(data_folder, file_name)
-    data_frame1B, col_demo, col_coding, col_diag = extract_variables(
-        data_frame1A, 'not toddler', 'ndar')
-    data_frame1C, df_for_module_analysis_1 = clean_data(
-        data_frame1B, col_coding)
-    data_frame1D = relabel_autismspectrum(data_frame1C, col_diag)
-    data_frame1E = format_datatypes(data_frame1D)
-
+    data_frame1D2, data_frame1E, df_for_module_analysis_1 = initial_pipeline(file_name)
+    
     # Validate Howe 2015 module distribution
     data_frame1D2 = relabel_autismspectrum(df_for_module_analysis_1)
     data_frame1E2 = format_datatypes(data_frame1D2)
@@ -1332,19 +1341,7 @@ def ados_main(file_name, module):
 
     # Module 2
     file_name = "ados2_201201.txt"
-    data_frame2A = read_tables(data_folder, file_name)
-    data_frame2B, col_demo, col_coding, col_diag = extract_variables(
-        data_frame2A, 'not toddler', 'ndar')
-    # file_name = "addirc_Dataset_2012_ados_2.txt"
-    # data_frame1B = read_tables(data_folder, file_name)
-    # data_frame2B, col_demo, col_coding, col_diag = extract_variables(
-    #     data_frame1B, 'not toddler', 'addirc')
-    # new_cols = {x: y for x, y in zip(data_frame2B.columns, data_frame2A.columns)}
-    # data_frame2 = data_frame2A.append(data_frame2B.rename(columns = new_cols))
-    data_frame2C, df_for_module_analysis_2 = clean_data(
-        data_frame2B, col_coding)
-    data_frame2D = relabel_autismspectrum(data_frame2C)
-    data_frame2E = format_datatypes(data_frame2D)
+    data_frame2D2, data_frame2E, df_for_module_analysis_2 = initial_pipeline(file_name)
 
     # Validate Howe 2015 module distribution
     data_frame2D2 = relabel_autismspectrum(df_for_module_analysis_2)
@@ -1407,15 +1404,9 @@ def ados_main(file_name, module):
     svc_results = svc(x_train, y_train, x_test, y_test, svc_grid_result)
 
 
-#    # Module 3
+    # Module 3
     file_name = "ados3_201201.txt"  # 4699 usable entries
-    data_frame3A = read_tables(data_folder, file_name)
-    data_frame3B, col_demo, col_coding, col_diag = extract_variables(
-        data_frame3A, 'not toddler', 'ndar')
-    data_frame3C, df_for_module_analysis_3 = clean_data(
-        data_frame3B, col_coding)
-    data_frame3D = relabel_autismspectrum(data_frame3C)
-    data_frame3E = format_datatypes(data_frame3D)
+    data_frame3D2, data_frame3E, df_for_module_analysis_3 = initial_pipeline(file_name)
 
     # Validate Howe 2015 module distribution
     data_frame3D2 = relabel_autismspectrum(df_for_module_analysis_3)
