@@ -109,7 +109,7 @@ def extract_variables(df, version, dataset):
         col_demographic = ['subjectkey', 'interview_age', 'sex']
 
         if (version == 'toddler'):
-            col_coding = [x for x in data_frame.columns
+            col_coding = [x for x in df.columns
                           [df.columns.str.contains('adost')]]
         # remove variables for comments
             col_coding_nocmt = [x for x in col_coding if not (x[-1].isalpha())]
@@ -127,7 +127,7 @@ def extract_variables(df, version, dataset):
                                                            ignore in ['cmt'])
                           ]
     elif dataset == 'addirc':
-        df = data_frame.rename(columns={"sfari_id": "subjectkey"})
+        df = df.rename(columns={"sfari_id": "subjectkey"})
         col_demographic = ['subjectkey', 'age_months', 'a_csex']
         col_diagnostic = ['s_scoresumm_adosdiag']
         df_tmp = df.pop(
@@ -150,8 +150,8 @@ def extract_variables(df, version, dataset):
         NameError("datatype is not defined")
 
     col_selected = col_demographic + col_diagnostic + col_coding
-    df_selected_variables = data_frame[[c for c in data_frame.columns if c in
-                                        col_selected]]
+    df_selected_variables = df[[c for c in df.columns if c in
+                                col_selected]]
 
     return df_selected_variables, col_demographic, col_coding, col_diagnostic
 
@@ -298,12 +298,12 @@ def clean_data(df, col_coding):
     df.replace(mapper, inplace=True)
     df = df.dropna()
 
-    return df_cleaned, df_for_module_analysis
+    return df, df_for_module_analysis
 
 # %%
 
 
-def relabel_autismspectrum(df, col_diag):
+def relabel_autismspectrum(df, col_diagnostic):
     """
     Condense autism and autism spectrum labels into one target label.
 
@@ -351,22 +351,22 @@ def format_datatypes(df, col_diagnostic):
 
     Returns
     -------
-    data_frame.
+    df : Pandas DataFrame
 
     """
     from sklearn.preprocessing import LabelEncoder
 
-    data_frame['interview_age'] = data_frame['interview_age'].astype('int32')
-    selected_cols = data_frame.select_dtypes(include=['object']).columns
-    data_frame[selected_cols] = data_frame[selected_cols].apply(
+    df['interview_age'] = df['interview_age'].astype('int32')
+    selected_cols = df.select_dtypes(include=['object']).columns
+    df[selected_cols] = df[selected_cols].apply(
         lambda x: x.astype('category'))
-    data_frame['subjectkey'] = data_frame['subjectkey'].astype('object')
+    df['subjectkey'] = df['subjectkey'].astype('object')
 
     lbe = LabelEncoder()
-    data_frame[col_diagnostic] = lbe.fit_transform(
-        data_frame[col_diagnostic])
+    df[col_diagnostic] = lbe.fit_transform(
+        df[col_diagnostic])
 
-    return data_frame
+    return df
 
 
 # %%
@@ -402,7 +402,7 @@ def simplify_data(df):
 # %%
 
 
-def condense_modules(df):
+def condense_modules(df, mod_num):
     """
     Condense data across all modules with the same 18 codes.
     Parameters
@@ -439,6 +439,8 @@ def condense_modules(df):
     col_coding = list(new_df.columns[3:-1])
     col_demo_and_diag = ['subjectkey',
                          'interview_age', 'sex', 'scoresumm_adosdiag']
+
+    new_df = new_df.assign(Module=mod_num)
 
     return new_df, col_coding, col_demo_and_diag
 
@@ -494,8 +496,8 @@ def descriptive_stats(df):
 
     """
     df.info()
-    sex_summ = data_frame.groupby('scoresumm_adosdiag')['sex'].value_counts()
-    age_summ = data_frame.groupby('scoresumm_adosdiag')[
+    sex_summ = df.groupby('scoresumm_adosdiag')['sex'].value_counts()
+    age_summ = df.groupby('scoresumm_adosdiag')[
         'interview_age'].describe()
 
     fig, ax = plt.subplots()
@@ -677,7 +679,7 @@ def cluster_kmeans(n_clusters, data_frame):
     return
 
 
-def cluster_kmodes(n_clusters, data_frame):
+def cluster_kmodes(n_clusters, df, col_coding_dummy):
     """
     Unsupervised learning approach to identify clusters of ADOS codes.
     # put more descriptoin here
@@ -690,7 +692,7 @@ def cluster_kmodes(n_clusters, data_frame):
         ----------
     n_clusters: integer value indicating the number of cluster outputs.
     data_frame: pandas dataframe housing one-hot encoded full set of data.
-    col_coding : list of column string names containing
+    col_coding_dummy : list of column string names containing
         independent variable codes used to predict diagnosis
 
     Returns
@@ -700,26 +702,26 @@ def cluster_kmodes(n_clusters, data_frame):
 
     """
     kmodes = KModes(n_clusters=n_clusters, init="Huang", n_init=2, verbose=1)
-    clusters = kmodes.fit_predict(data_frame)
-    data_frame['clusters'] = clusters
+    clusters = kmodes.fit_predict(df)
+    df['clusters'] = clusters
     print("Calinski-Harabasz Score",
-          metrics.calinski_harabasz_score(data_frame, clusters))
+          metrics.calinski_harabasz_score(df, clusters))
     print("Cluster Mode Centroids", kmodes.cluster_centroids_)
 
     # maybe send through one-hot encoding outside this function
     # df_dummy = pd.get_dummies(data_frame)
     # x = df_dummy.reset_index().values
     km = KModes(n_clusters=2, init='Huang', n_init=2, verbose=0)
-    clusters = km.fit_predict(data_frame)
-    data_frame['clusters'] = clusters
+    clusters = km.fit_predict(df)
+    df['clusters'] = clusters
     pca = PCA(n_clusters)
 
     # Turn the dummified df into two columns with PCA
-    plot_columns = pca.fit_transform(data_frame)
+    plot_columns = pca.fit_transform(df)
 
     # Plot based on the two dimensions, and shade by cluster label
     LABEL_COLOR_MAP = {0: 'b', 1: 'r'}
-    label_color = [LABEL_COLOR_MAP[l] for l in data_frame['clusters']]
+    label_color = [LABEL_COLOR_MAP[l] for l in df['clusters']]
     fig1, ax1 = plt.subplots()
     plt.scatter(x=plot_columns[:, 1], y=plot_columns[:, 0], c=label_color,
                 s=30)
@@ -745,7 +747,7 @@ def cluster_kmodes(n_clusters, data_frame):
     df_cluster = pd.DataFrame(cluster_centroids,
                               columns=col_coding_dummy)
 
-    return df_cluster, data_frame
+    return df_cluster, df
 
 
 def cluster_parameters_select(cluster_name, data_frame):
@@ -853,7 +855,8 @@ def pca(x_train, x_test, y_train, y_test):
     Principal component analysis on ADOS codes.
 
     Of note, this will not work as well here because the dependent variables
-    are categorical, may or may not work with dummy variables (best with continuous but we don't have')
+    are categorical, may or may not work with dummy variables (best with 
+    continuous but we don't have')
 
     Determine what items are most important in characterizing the variance.
     Normalize the data using StandardScaler, then use the PCA function
@@ -913,7 +916,7 @@ def pca(x_train, x_test, y_train, y_test):
     fig = plt.figure(figsize=(8, 8))
     ax = fig.add_subplot(1, 1, 1)
     ax.set_title(
-        "Distinguishing Participants by Diagnosis \n in Modules 1-3 (N = 10, 955): 93% Accuracy")
+        "Distinguishing Participants by Diagnosis \n in Modules 1-3 (N = 10,955): 93% Accuracy")
     ax.set_xlabel('Principal Component 1')
     ax.set_ylabel('Principal Component 2')
 
@@ -941,7 +944,8 @@ def factor_analysis(x_fact):
     fit_transform(X[, y]): Fit to data, then transform it.
     get_covariance(): Compute data covariance with the FactorAnalysis model.
     get_params([deep]): Get parameters for this estimator.
-    get_precision(): Compute data precision matrix with the FactorAnalysis model.
+    get_precision(): Compute data precision matrix with the FactorAnalysis 
+    model. 
     score(X[, y]): Compute the average log-likelihood of the samples
     score_samples(X): Compute the log-likelihood of each sample
     set_params(**params): Set the parameters of this estimator.
@@ -1255,25 +1259,41 @@ def initial_pipeline(file_name):
     return data_frameD2, data_frameE, df_for_module_analysis
 
 
+def howe_validation_pipeline(df_for_module_analysis, mod_num):
+    data_frameD2 = relabel_autismspectrum(df_for_module_analysis)
+    data_frameE2 = format_datatypes(data_frameD2)
+    data_frameE2['module'] = mod_num
+    return data_frameE2
+
+
+def selected_variables_pipeline(cond_codes):
+    important_factors = ['inton', 'stereo_lang',
+                         'rrb', 'exp_attn', 'facial_exp', 'shared_enj']
+    important_factors_orig = ['gest', 'eye_cont', 'facial_exp', 'shared_enj',
+                              'soc_overture', 'stereo_lang', 'sensory',
+                              'mannerisms', 'rrb']
+    data_frameF, col_coding_dummy = one_hot_encoding(
+        cond_codes, important_factors_orig)
+    x_train_fact, x_test_fact, y_train_fact, y_test_fact = split_dataset(
+        data_frameF, important_factors)
+    mod_coefs = logistic_regression(
+        x_train_fact, x_test_fact, y_train_fact, y_test_fact)
+    return mod_coefs
 # %%
 
 
 def ados_main():
     """
     Implementation of analysis.
-
     Run input file through a series of steps depending on it's module type
-
     Parameters
     file_name
     ----------
-
     Returns
     -------
     Results from analyses.
-
     """
-        
+
     # Toddler Module
     # file_name = "adost_201201.txt"
     # data_frameTA = read_tables(data_folder, file_name)
@@ -1281,15 +1301,13 @@ def ados_main():
     #     data_frameTA, 'toddler', 'ndar')
     # data_frameTC = clean_data(data_frameTB, col_coding)
 
-    # # Module 1
     # Module 1
     file_name = "ados1_201201.txt"
-    data_frame1D2, data_frame1E, df_for_module_analysis_1 = initial_pipeline(file_name)
-    
+    data_frame1D2, data_frame1E, df_for_module_analysis_1 = initial_pipeline(
+        file_name)
+
     # Validate Howe 2015 module distribution
-    data_frame1D2 = relabel_autismspectrum(df_for_module_analysis_1)
-    data_frame1E2 = format_datatypes(data_frame1D2)
-    data_frame1E2['module'] = 1
+    data_frame1E2 = howe_validation_pipeline(df_for_module_analysis_1, 1)
 
     # Validate and expand on established ADOS analyses (Gotham et al., 2007)
     # factor analysis + regression on modules separately
@@ -1306,16 +1324,7 @@ def ados_main():
     fa_loadings_1, ncomponents = factor_analysis(cond_codes_1[col_coding])
 
     # eh, fine. Now let's one-hot encode, split the dataset and do a logistic regression using the most important variables
-    important_factors = ['inton', 'stereo_lang',
-                         'rrb', 'exp_attn', 'facial_exp', 'shared_enj']
-    important_factors_orig = ['gest', 'eye_cont', 'facial_exp', 'shared_enj',
-                              'soc_overture', 'stereo_lang', 'sensory', 'mannerisms', 'rrb']
-    data_frame1F, col_coding_dummy = one_hot_encoding(
-        cond_codes_1, important_factors_orig)
-    x_train_fact_1, x_test_fact_1, y_train_fact_1, y_test_fact_1 = split_dataset(
-        data_frame1F, important_factors)
-    mod1_coefs = logistic_regression(
-        x_train_fact_1, x_test_fact_1, y_train_fact_1, y_test_fact_1)
+    mod1_coefs = selected_variables_pipeline(cond_codes_1)
 
     # ok now time to do it my way...
     # incl 3, 7, 8, 9 all codes
@@ -1341,12 +1350,11 @@ def ados_main():
 
     # Module 2
     file_name = "ados2_201201.txt"
-    data_frame2D2, data_frame2E, df_for_module_analysis_2 = initial_pipeline(file_name)
+    data_frame2D2, data_frame2E, df_for_module_analysis_2 = initial_pipeline(
+        file_name)
 
     # Validate Howe 2015 module distribution
-    data_frame2D2 = relabel_autismspectrum(df_for_module_analysis_2)
-    data_frame2E2 = format_datatypes(data_frame2D2)
-    data_frame2E2['module'] = 2
+    data_frame2E2 = howe_validation_pipeline(df_for_module_analysis_2, 2)
 
     # Validate and expand on established ADOS analyses (Gotham et al., 2007)
     # factor analysis + regression on modules separately
@@ -1358,16 +1366,7 @@ def ados_main():
     fa_loadings_2, ncomponents = factor_analysis(cond_codes_2[col_coding])
 
     # eh, fine. Now let's one-hot encode, split the dataset and do a logistic regression using the most important variables
-    important_factors = ['inton', 'stereo_lang',
-                         'rrb', 'exp_attn', 'facial_exp', 'shared_enj']
-    important_factors_orig = ['gest', 'eye_cont', 'facial_exp', 'shared_enj',
-                              'soc_overture', 'stereo_lang', 'sensory', 'mannerisms', 'rrb']
-    data_frame2F, col_coding_dummy = one_hot_encoding(
-        cond_codes_2, important_factors_orig)
-    x_train_fact_2, x_test_fact_2, y_train_fact_2, y_test_fact_2 = split_dataset(
-        data_frame2F, important_factors)
-    mod2_coefs = logistic_regression(
-        x_train_fact_2, x_test_fact_2, y_train_fact_2, y_test_fact_2)
+    mod2_coefs = selected_variables_pipeline(cond_codes_2)
 
     # ok now time to do it my way...
     # incl 3, 7, 8, 9 all codes
@@ -1403,15 +1402,14 @@ def ados_main():
     svc_grid_result = svc_param_selection(x_train, y_train)
     svc_results = svc(x_train, y_train, x_test, y_test, svc_grid_result)
 
-
     # Module 3
     file_name = "ados3_201201.txt"  # 4699 usable entries
-    data_frame3D2, data_frame3E, df_for_module_analysis_3 = initial_pipeline(file_name)
+    data_frame3D2, data_frame3E, df_for_module_analysis_3 = initial_pipeline(
+        file_name)
 
     # Validate Howe 2015 module distribution
-    data_frame3D2 = relabel_autismspectrum(df_for_module_analysis_3)
-    data_frame3E2 = format_datatypes(data_frame3D2)
-    data_frame3E2['module'] = 3
+    data_frame3E2 = howe_validation_pipeline(df_for_module_analysis_3, 3)
+
     # identify descriptive stats for participants above age that most NT at mod3
     select_columns = ['sex', 'interview_age', 'scoresumm_adosdiag', 'module']
     ns_mod3_thr, asd_demo = mod3_age_distribution(
@@ -1429,16 +1427,8 @@ def ados_main():
     cond_codes_3, col_coding = condense_modules(data_frame3F)
     fa_loadings_3, ncomponents = factor_analysis(cond_codes_3[col_coding])
 
-    important_factors = ['inton', 'stereo_lang',
-                         'rrb', 'exp_attn', 'facial_exp', 'shared_enj']
-    important_factors_orig = ['gest', 'eye_cont', 'facial_exp', 'shared_enj',
-                              'soc_overture', 'stereo_lang', 'sensory', 'mannerisms', 'rrb']
-    data_frame3F, col_coding_dummy = one_hot_encoding(
-        cond_codes_3, important_factors_orig)
-    x_train_fact_3, x_test_fact_3, y_train_fact_3, y_test_fact_3 = split_dataset(
-        data_frame3F, important_factors)
-    mod1_coefs = logistic_regression(
-        x_train_fact_3, x_test_fact_3, y_train_fact_3, y_test_fact_3)
+    # eh, fine. Now let's one-hot encode, split the dataset and do a logistic regression using the most important variables
+    mod3_coefs = selected_variables_pipeline(cond_codes_3)
 
     # ok now time to do it my way...
     # incl 3, 7, 8, 9 all codes
@@ -1467,20 +1457,30 @@ def ados_main():
     cluster_centroids, cluster_columns = cluster_kmodes(
         opti_n_clusters, data_frame3F[col_coding_dummy])
 
-    # Condense codes, remove asd, and look at all samples together
+    # focus on condensing data across all module tests
+    ados_submain(data_frame1E, data_frame2E, data_frame3E)
+
+    return
+
+
+def ados_submain(data_frame1E, data_frame2E, data_frame3E):
+    """
+    Documentation here
+    """
+
+    # Condense codes and look at all samples together
     cond_codes_1, col_coding, col_demo_and_diag = condense_modules(
         data_frame1E)
-    cond_codes_1 = cond_codes_1.assign(Module=1)
     cond_codes_2, col_coding, col_demo_and_diag = condense_modules(
         data_frame2E)
-    cond_codes_2 = cond_codes_2.assign(Module=2)
     cond_codes_3, col_coding, col_demo_and_diag = condense_modules(
         data_frame3E)
-    cond_codes_3 = cond_codes_3.assign(Module=3)
+
     all_cond_codes = pd.concat([cond_codes_1, cond_codes_2, cond_codes_3])
     age_summ, sex_summ = descriptive_stats(all_cond_codes)
     data_frame_all, col_coding_dummy = one_hot_encoding(
         all_cond_codes, col_coding)
+
     x_train_all, x_test_all, y_train_all, y_test_all = split_dataset(
         data_frame_all, col_coding_dummy, col_diag)
     pca_loadings = pca(x_train_all, x_test_all, y_train_all, y_test_all)
@@ -1507,6 +1507,7 @@ def ados_main():
         opti_n_clusters, asd_only_all_df[col_coding_dummy])
     cluster_centroids, cluster_columns = cluster_kmodes(
         6, asd_only_all_df[col_coding_dummy])
+
     # Supervised learning
     x_train_asd, x_test_asd, y_train_asd, y_test_asd = split_dataset(
         asd_only_all_df, col_coding_dummy, col_diag)
@@ -1518,3 +1519,4 @@ def ados_main():
 # %%
 if __name__ == "__main__":
     ados_main()
+    ados_submain()
