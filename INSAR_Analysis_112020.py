@@ -39,6 +39,7 @@ from sklearn import model_selection
 from sklearn import metrics
 from sklearn.svm import SVC
 from sklearn.preprocessing import LabelEncoder
+from sklearn.cluster import KMeans
 
 # other statistics
 from scipy.stats import chi2_contingency
@@ -51,6 +52,8 @@ from scipy.special import expit
 import statsmodels as sm
 from statsmodels.stats.outliers_influence import variance_inflation_factor as vif_func
 from kmodes.kmodes import KModes
+from kneed import KneeLocator
+
 
 # Basics and plotting
 import itertools
@@ -60,6 +63,7 @@ import numpy as np
 import pandas as pd
 from pathlib import Path
 import seaborn as sns
+
 
 # %%
 
@@ -263,7 +267,8 @@ def clean_data_part1(df, col_coding):
                                   value='autism spectrum', inplace=True)
 
     # Remove any participant with an age of less than 12 months. It is invalid.
-    df = df[df['interview_age'].astype('int32') > 12]
+    df = df[df['interview_age'].astype('int32') > 17]
+    df = df[df['interview_age'].astype('int32') < 192]
 
     # Address errors in data: lists variables with 3 when no 3 option.
     # Replace with 2.
@@ -404,8 +409,8 @@ def descriptive_stats(df):
 
     ax.legend(['Autism', 'Nonspectrum'])
     # df.groupby('scoresumm_adosdiag')['interview_age'].hist()
-    plt.xlim((0, 300))
-    plt.ylim((0, 4000))
+    plt.xlim((17, 200))
+    plt.ylim((0, 2000))
     plt.title('Histogram of Age and Group \n (N = 10,043)')
     plt.xlabel('Age (months)')
     plt.ylabel('Frequency')
@@ -454,7 +459,7 @@ def scree(df, col_coding_new):
     plt.scatter(range(1, x_fact.shape[1]+1), eigen_values)
     plt.plot(range(1, x_fact.shape[1]+1), eigen_values)
     plt.xticks(np.arange(0, x_fact.shape[1], step=2))
-    plt.title('Scree Plot')
+    plt.title('Scree Plot: Number of Factors for Analysis')
     plt.xlabel('Factors')
     plt.ylabel('Eigenvalue')
 
@@ -838,7 +843,35 @@ def roc(x_train, x_test, y_train, y_test, model):
     return
 
 # %%
+def pca_2(data_frame_x):
+    """Chose the number of components for PCA analysis.
+    If the PCA is 1, replace with 2.
+    """
+    scaler = StandardScaler()
+    scaled_features = scaler.fit_transform(data_frame_x)
+    pca = PCA()
+    pca.fit(scaled_features)
 
+    def chose_components(pca_vals):
+        plt.figure(figsize = (10, 8))
+        evr = pca_vals.explained_variance_ratio_.cumsum()
+        plt.plot(range(1, scaled_features.shape[1]+1), evr, marker = 'o', linestyle = '--')
+        plt.title('Explained Variance by Components')
+        plt.xlabel('Number of Components')
+        plt.ylabel('Cumulative Explained Variance')
+        plt.xlim((1, 10))
+        plt.ylim((0, 0.8))
+        knee = KneeLocator(
+                range(1, 20), evr, curve="convex", direction="decreasing")
+        ncomponents = round(knee.knee, 0)
+        # if ncomponents == 1:
+        #   ncomponents = 2
+        return ncomponents
+
+    ncomponents = chose_components(pca)
+    pca = PCA(n_components = ncomponents)
+    scores_pca = pca.fit_transform(scaled_features)
+    return scores_pca
 
 def pca(x_train, x_test, y_train, y_test):
     """
@@ -961,7 +994,7 @@ def pca(x_train, x_test, y_train, y_test):
     specificity1 = cm[1, 1]/(cm[1, 0]+cm[1, 1])
     print('Specificity:', specificity1)
 
-    return loading_matrix
+    return loading_matrix, lr_df
 # %%
 
 
@@ -987,7 +1020,7 @@ def multicollinearity_check(x_train):
 # %%
 
 
-def cluster_kmeans(n_clusters, data_frame):
+def cluster_kmeans(data_frame_x, scores_pca, sa_items, rrb_items):
     """
     Unsupervised learning approach to identify clusters of ADOS codes.
 
@@ -1003,31 +1036,89 @@ def cluster_kmeans(n_clusters, data_frame):
     -------
     None.
     """
-    kmeans = cluster.KMeans(n_clusters=n_clusters)
-    clusters = kmeans.fit_predict(data_frame)
-    print("Calinski-Harabasz Score",
-          metrics.calinski_harabasz_score(data_frame, clusters))
+    def chose_clusters():
+        wcss = []
+        for kmean_cluster_i in range(1, 10):
+            kmeans_pca = KMeans(n_clusters = kmean_cluster_i, init = 'k-means++', random_state = 0)
+            kmeans_pca.fit(scores_pca[0:])
+            wcss.append(kmeans_pca.inertia_)
+        plt.figure(figsize = (10, 8))
+        plt.plot(range(1, 10), wcss, marker = 'o', linestyle = '--')
+        plt.xlabel('Number of K-Means Clusters')
+        plt.ylabel('Within Cluster Sum of Scores')
+        plt.title('K-means with PCA Clustering Solutions')
+        knee = KneeLocator(
+                    range(1, 10), wcss, curve="convex", direction="decreasing")
+        n_clusters_opt = round(knee.knee, 0)
+        return n_clusters_opt
 
-    data_frame['clusters'] = clusters
-    pca = PCA(n_clusters)
+    n_clusters_opt = chose_clusters()
+    kmeans_pca = KMeans(n_clusters = n_clusters_opt, init = 'k-means++', random_state = 0)
+    kmeans_pca.fit(scores_pca)
+    df_pca_kmeans = pd.concat([data_frame_x.reset_index(drop = True), pd.DataFrame(scores_pca)], axis = 1)
+    df_pca_kmeans.columns.values[-2: ] = ['PCA Component 1', 'PCA Component 2']
+    df_pca_kmeans['Segment K-means PCA'] = kmeans_pca.labels_
+    df_pca_kmeans['Cluster'] = df_pca_kmeans['Segment K-means PCA'].map({
+        0: 'Cluster Group 3',
+        1: 'Cluster Group 1',
+        2: 'Cluster Group 2'})
+    x_axis = df_pca_kmeans['PCA Component 1']
+    y_axis = df_pca_kmeans['PCA Component 2']
+    plt.figure(figsize = (10, 8))
+    sns.scatterplot(x_axis, y_axis, hue=df_pca_kmeans['Cluster'], palette = ['g', 'r', 'c'])
+    plt.title('Clusters by PCA Components')
 
-    # Turn the dummified df into two columns with PCA
-    plot_columns = pca.fit_transform(data_frame.ix[:, 0:12])
+    # Split up items based on 2-level factor analysis
+    n_clusters_opt = chose_clusters()
+    kmeans_pca = KMeans(n_clusters = n_clusters_opt, init = 'k-means++', random_state = 0)
+    kmeans_pca.fit(scores_pca)
+    df_pca_kmeans = pd.concat([data_frame_x.reset_index(drop = True), pd.DataFrame(scores_pca[0:])], axis = 1)
+    df_pca_kmeans.columns.values[-1: ] = ['PCA Component 1']
+    df_pca_kmeans['Segment K-means PCA'] = kmeans_pca.labels_
+    df_pca_kmeans['Cluster'] = df_pca_kmeans['Segment K-means PCA'].map({
+        0: 'Cluster Group 1',
+        1: 'Cluster Group 2',
+        2: 'Cluster Group 3'})
 
-    # Plot based on the two dimensions, and shade by cluster label
-    plt.scatter(x=plot_columns[:, 1], y=plot_columns[:,
-                                                     0], c=data_frame[
-                                                         "clusters"], s=30)
-    plt.show()
+    df_pca_kmeans['rrb_total']=df_pca_kmeans.loc[:,rrb_items].sum(axis=1)
+    df_pca_kmeans['sa_total']=df_pca_kmeans.loc[:,sa_items].sum(axis=1)
+    df_pca_kmeans['total']=df_pca_kmeans['rrb_total'] + df_pca_kmeans['sa_total']
+
+    plt.figure(figsize = (10, 10))
+    y_axis = df_pca_kmeans['sa_total']
+    x_axis = df_pca_kmeans['rrb_total']
+    sns.scatterplot(x_axis, y_axis, hue=df_pca_kmeans['Cluster'], palette = ['g', 'c', 'r'])
+    plt.ylabel('Social Affect Total')
+    plt.xlabel('Restricted Total')
+    plt.title('K-Means Clustering by Social and Restricted Features - ASD Only')
     return
 
+    # Try doing with totals instead of PCAs
+    # scores_2 = pd.concat([df_pca_kmeans['sa_total'], df_pca_kmeans['rrb_total']], axis=1)
+    # scaler = StandardScaler()
+    # scaled_features = scaler.fit_transform(scores_2)
+    # n_clusters_opt = chose_clusters()
+    # kmeans_pca = KMeans(n_clusters = n_clusters_opt, init = 'k-means++', random_state = 0)
+    # kmeans_pca.fit(scaled_features)
+    # df_pca_kmeans = pd.concat([x_train.reset_index(drop = True), pd.DataFrame(scaled_features)], axis = 1)
+    # df_pca_kmeans.columns.values[-2: ] = ['sa_t', 'rrb_t']
+    # df_pca_kmeans['Segment K-means PCA'] = kmeans_pca.labels_
+    # df_pca_kmeans['Segment'] = df_pca_kmeans['Segment K-means PCA'].map({
+    #     0: 'Cluster Group 1',
+    #     1: 'Cluster Group 2',
+    #     2: 'Cluster Group 3'})
+    # x_axis = df_pca_kmeans['sa_t']
+    # y_axis = df_pca_kmeans['rrb_t']
+    # plt.figure(figsize = (10, 8))
+    # sns.scatterplot(x_axis, y_axis, hue=df_pca_kmeans['Segment'], palette = ['g', 'r', 'c'])
+    # plt.title('Clusters by PCA Components')
 
-def cluster_kmodes(n_clusters, df, col_coding_dummy):
+def cluster_kmodes(n_clusters, data_frame, col_coding_dummy):
     """
     Unsupervised learning approach to identify clusters of ADOS codes.
 
     Parameters
-        ----------
+    ----------
     n_clusters: integer value indicating the number of cluster outputs.
     data_frame: pandas dataframe housing one-hot encoded full set of data.
     col_coding_dummy : list of column string names containing
@@ -1037,27 +1128,29 @@ def cluster_kmodes(n_clusters, df, col_coding_dummy):
     km.cluster_centroids_
     plot_columns
     """
+    scaler = StandardScaler()
+    scaled_features = scaler.fit_transform(data_frame)
     kmodes = KModes(n_clusters=n_clusters, init="Huang", n_init=2, verbose=1)
-    clusters = kmodes.fit_predict(df)
-    df['clusters'] = clusters
+    clusters = kmodes.fit_predict(data_frame)
+    data_frame['clusters'] = clusters
     print("Calinski-Harabasz Score",
-          metrics.calinski_harabasz_score(df, clusters))
+          metrics.calinski_harabasz_score(scaled_features, clusters))
     print("Cluster Mode Centroids", kmodes.cluster_centroids_)
 
     # maybe send through one-hot encoding outside this function
     # df_dummy = pd.get_dummies(data_frame)
     # x = df_dummy.reset_index().values
     km = KModes(n_clusters=2, init='Huang', n_init=2, verbose=0)
-    clusters = km.fit_predict(df)
-    df['clusters'] = clusters
+    clusters = km.fit_predict(scaled_features)
+    data_frame['clusters'] = clusters
     pca = PCA(n_clusters)
 
     # Turn the dummified df into two columns with PCA
-    plot_columns = pca.fit_transform(df)
+    plot_columns = pca.fit_transform(scaled_features)
 
     # Plot based on the two dimensions, and shade by cluster label
     LABEL_COLOR_MAP = {0: 'b', 1: 'r'}
-    label_color = [LABEL_COLOR_MAP[l] for l in df['clusters']]
+    label_color = [LABEL_COLOR_MAP[l] for l in data_frame['clusters']]
     fig1, ax1 = plt.subplots()
     plt.scatter(x=plot_columns[:, 1], y=plot_columns[:, 0], c=label_color,
                 s=30)
@@ -1083,59 +1176,111 @@ def cluster_kmodes(n_clusters, df, col_coding_dummy):
     df_cluster = pd.DataFrame(cluster_centroids,
                               columns=col_coding_dummy)
 
-    return df_cluster, df
+    return df_cluster, scaled_features
 
 
-def cluster_parameters_select(cluster_name, data_frame):
-    """
-    Identify the optimal number of clusters for k-modes and means analyses.
+# def cluster_parameters_select(cluster_name, data_frame):
+#     """
+#     Identify the optimal number of clusters for k-modes and means analyses.
 
-    Parameters
-    ----------
-    cluster_name: string containing either 'k_means' or 'k_modes'
-    data_frame: pandas dataframe housing either categorical or one-hot data
-    Returns
-    -------
-    max_score: TYPE
-    opti_n_clusters: TYPE
-    """
-    scores_stored = []
-    if cluster_name == "k_modes":
-        max_score = 0
-        opti_n_clusters = 0
-        cluster_num_list = [2, 3, 4, 5, 6, 7, 8, 9, 10, 15, 20]
-        # for n in range(30, 100):
-        for n in cluster_num_list:
-            kmodes = KModes(n_clusters=n, init="Huang", n_init=5, verbose=1)
-            clusters = kmodes.fit_predict(data_frame)
-            # score = metrics.calinski_harabaz_score(data, clusters)
-            score = metrics.calinski_harabasz_score(data_frame, clusters)
-            print("Calinski-Harabasz Score——", "n_clusters=", n, "score:",
-                  score)
-            if max_score < score:
-                max_score = score
-                opti_n_clusters = n
-                scores_stored.append(score)
-        print("max_score:", max_score, "opti_n_clusters:", opti_n_clusters)
-        plt.plot(scores_stored)  # elbow method - select elbow point
+#     Parameters
+#     ----------
+#     cluster_name: string containing either 'k_means' or 'k_modes'
+#     data_frame: pandas dataframe housing either categorical or one-hot data
+#     Returns
+#     -------
+#     max_score: TYPE
+#     opti_n_clusters: TYPE
+#     """
 
-    if cluster_name == "k_means":
-        max_score = 0
-        opti_n_clusters = 0
-        for n in range(2, 30):
-            kmodes = KModes(n_clusters=n, init="Huang", n_init=10, verbose=1)
-            clusters = kmodes.fit_predict(data_frame)
-            score = metrics.calinski_harabasz_score(data_frame, clusters)
-            print("Calinski-Harabasz Score——", "n_clusters=", n, "score:",
-                  score)
-            if max_score < score:
-                max_score = score
-                opti_n_clusters = n
-        print("max_score:", max_score, "opti_n_clusters:", opti_n_clusters)
-    return max_score, opti_n_clusters
+#     scaler = StandardScaler()
+#     scaled_features = scaler.fit_transform(data_frame)
+
+#     scores_stored = []
+#     sse = []
+#     if cluster_name == "k_modes":
+#         max_score = 0
+#         opti_n_clusters = 0
+#         cluster_num_list = [2, 3, 4, 5, 6, 7, 8, 9, 10, 15, 20]
+#         # for n in range(30, 100):
+#         for n in cluster_num_list:
+#             kmodes = KModes(n_clusters=n, init="Huang", n_init=5, verbose=1)
+#             clusters = kmodes.fit_predict(scaled_features)
+#             # score = metrics.calinski_harabaz_score(data, clusters)
+#             score = metrics.calinski_harabasz_score(scaled_features, clusters)
+#             print("Calinski-Harabasz Score——", "n_clusters=", n, "score:",
+#                   score)
+#             if max_score < score:
+#                 max_score = score
+#                 opti_n_clusters = n
+#                 scores_stored.append(score)
+#         print("max_score:", max_score, "opti_n_clusters:", opti_n_clusters)
+#         plt.plot(scores_stored)  # elbow method - select elbow point
+
+#     from sklearn.cluster import KMeans
+#     if cluster_name == "k_means":
+#         max_score = 0
+#         opti_n_clusters = 0
+#         for n in range(2, 30):
+#             kmeans = KMeans(n_clusters=n, init="k-means++", n_init=5, max_iter=500, random_state=0)
+#             kmeans.fit(scaled_features)
+#             P = kmeans.predict(X)
+#             score = metrics.calinski_harabasz_score(scaled_features, clusters)
+#             print("Calinski-Harabasz Score——", "n_clusters=", n, "score:",
+#                   score)
+#             if max_score < score:
+#                 max_score = score
+#                 opti_n_clusters = n
+#                 scores_stored.append(score)
+#                 sse.append(kmeans.inertia_)
+
+#         print("max_score:", max_score, "opti_n_clusters:", opti_n_clusters)
+#         plt.plot(scores_stored)  # elbow method - select elbow point
+#         plt.xlabel("Number of Clusters")
+#         plt.ylabel("Scores")
+
+#         plt.style.use("fivethirtyeight")
+#         plt.plot(range(1, 11), sse)
+#         plt.xticks(range(1, 11))
+#         plt.xlabel("Number of Clusters")
+#         plt.ylabel("SSE")
+#         kl = KneeLocator(
+#             range(1, 11), sse, curve="convex", direction="decreasing")
+
+#     return max_score, opti_n_clusters, k1.elbow
 
 # %%
+def plot_loadings(loading_values, sa_items, rrb_items):
+    loadings_1  = loading_values.loc[
+        loading_values['Code Feature'].isin(
+            sa_items)].sort_values(by = 'Loading 1', ascending = False)
+    # Create graph of feature importance for Factor 1
+    sns.set_context('paper', font_scale=2)
+    plt.rcParams['font.sans-serif'] = 'Arial'
+    plt.rcParams['font.family'] = 'sans-serif'
+    plt.rcParams['text.color'] = '#000000'
+    plt.rcParams['axes.labelcolor']= '000000'
+    plt.rcParams['xtick.color'] = '#000000'
+    plt.rcParams['ytick.color'] = '#000000'
+    sns.color_palette("Blues")
+    plt.figure(figsize=(5,5.5));
+    ax = sns.barplot(x = 'Loading 1', y='Code Feature', data=loadings_1,
+                     palette=sns.light_palette(
+                         (210, 90, 60), n_colors=15, input="husl",
+                         reverse=True))
+    plt.title('Social Features')
 
+    loadings_2  = efa2_loadings_labeled.loc[
+        efa2_loadings_labeled['Code Feature'].isin(
+            rrb_items)].sort_values(by = 'Loading 2', ascending = False)
+    # Create graph of feature importance for Factor 1
+    plt.figure(figsize=(5,5.5));
+    ax = sns.barplot(x = 'Loading 2', y='Code Feature', data=loadings_2,
+                     palette=sns.light_palette(
+                         (210, 90, 60), n_colors=13, input="husl",
+                         reverse=True))
+    plt.title('Restricted Features')
+    return
 # %%
 
 # Run code for the following data files
@@ -1176,7 +1321,6 @@ loading_df = pd.DataFrame(zip(col_coding_new, efa1_loadings)).sort_values(
     by=1, axis=0, ascending=False)
 loading_df.rename(columns={0: 'Code', 1: 'Loading'}, inplace=True)
 print('Factor Loading : \n', loading_df)
-
 x_train, x_test, y_train, y_test = split_dataset(
     all_mods, model1_dict['1'], col_diag[0])
 vif_check = multicollinearity_check(x_train)
@@ -1185,37 +1329,65 @@ fm_top_coeffs, fm_odds_ratio_matrix, fm, fm_cm = logistic_regression(
 print('Top Coefficients for 1 Factor Model are \n',
       fm_top_coeffs.sort_values(by='Coefficient'))
 roc(x_train, x_test, y_train, y_test, fm)
-pca_results = pca(x_train, x_test, y_train, y_test)
-print('Variable Weights Contributing to PCA in 1-Factor Model \n',
-      pca_results.sort_values(by='PC1', ascending=False))
+# pca_results = pca(x_train, x_test, y_train, y_test)
+# print('Variable Weights Contributing to PCA in 1-Factor Model \n',
+#       pca_results.sort_values(by='PC1', ascending=False))
 
-# Update so does LM for all factors in 2-Factor Model
-
+# 2-Factor Model
 efa2_loadings, factor2_comm, orig2_ev, common2_ev, model2_dict, \
     all_high_loadings_f2 = factor_analysis(all_mods, 2, col_coding_new)
+
+efa2_loadings_labeled = pd.concat([pd.DataFrame(efa2_loadings), pd.DataFrame(col_coding_new)], axis = 1)
+efa2_loadings_labeled.columns = ['Loading 1', 'Loading 2', 'Code Feature']
+rrb_items = ['echo', 'stereo_lang', 'sensory',
+                     'mannerisms', 'selfinj', 'rrb', 'active', 'agg']
+sa_items = ['inton', 'gest', 'eye_cont', 'facial_exp', 'shared_enj',
+                'soc_overture', 'exp_attn', 'response','imag', 'anx']
+plot_loadings(efa2_loadings_labeled, sa_items, rrb_items)
+
 cfa2_factor_loadings = con_factor_analysis(
     all_mods, model2_dict, all_high_loadings_f2)
-
 x_train, x_test, y_train, y_test = split_dataset(
     all_mods, list(all_high_loadings_f2), col_diag[0])
 f2_top_coeffs, f2_odds_ratio_matrix, f2, f2_cm = logistic_regression(
-     x_train, x_test, y_train, y_test)
+      x_train, x_test, y_train, y_test)
 print('Top Coefficients for 2-Factor Model are \n',
       f2_top_coeffs.sort_values(by='Coefficient'))
 roc(x_train, x_test, y_train, y_test, f2)
-pca_results_f2 = pca(x_train, x_test, y_train, y_test)
-print('Variable Weights Contributing to PCA in 2-Factor Model \n',
-      pca_results_f2.sort_values(by='PC1', ascending=False))
+# pca_results_f2 = pca(x_train, x_test, y_train, y_test)
+# print('Variable Weights Contributing to PCA in 2-Factor Model \n',
+#       pca_results_f2.sort_values(by='PC1', ascending=False))
 
-# Compare K-Means and K-Modes performance
-max_score, opti_n_clusters = cluster_parameters_select(
-    "k_modes", all_mods[col_coding_new])
-df_cluster_kmo, df_cluster_labeled_kmo = cluster_kmodes(
-    opti_n_clusters, all_mods[col_coding_new])
-max_score, opti_n_clusters = cluster_parameters_select(
-    "k_means", all_mods[col_coding_new])
-df_cluster_kme, df_cluster_labeled_kme = cluster_kmeans(
-    opti_n_clusters, all_mods[col_coding_new])
+
+# PCA + K-Means
+scores_pca = pca_2(all_mods[col_coding_new])
+
+# PCA and K-Means for Clusters across all ADOS Codes, all participants
+x_train, x_test, y_train, y_test = split_dataset(
+    all_mods, col_coding_new, col_diag[0])
+loading_matrix_x, lr_df = pca(x_train, x_test, y_train, y_test)
+loading_matrix.sort_values(by= 'PC1', ascending = False)
+
+    # Create graph of feature importance for Factor 1
+loading_matrix.index.name = 'Code Feature'
+loading_matrix.reset_index(inplace = True)
+loading_matrix.sort_values(by='PC1', ascending = False, inplace = True)
+plt.figure(figsize=(5,5.5));
+ax = sns.barplot(x = 'PC1', y='Code Feature', data=loading_matrix,
+                 palette=sns.light_palette(
+                     (210, 90, 60), n_colors=20, input="husl",
+                     reverse=True))
+plt.title('Feature Loadings for PC1')
+
+# cluster_kmeans(opti_n_clusters, df_asd, col_coding_new, sa_items, rrb_items)
+# max_score, opti_n_clusters = cluster_parameters_select(
+#     "k_modes", all_mods[col_coding_new])
+# df_cluster_kmo, df_cluster_labeled_kmo = cluster_kmodes(
+#     opti_n_clusters, all_mods, col_coding_new)
+# max_score, opti_n_clusters = cluster_parameters_select(
+#     "k_means", all_mods[col_coding_new])
+# df_cluster_kme, df_cluster_labeled_kme = cluster_kmeans(
+#     opti_n_clusters, all_mods, col_coding_new)
 
 # LMs done separately for the two factors
 # x_train, x_test, y_train, y_test = split_dataset(
@@ -1226,3 +1398,21 @@ df_cluster_kme, df_cluster_labeled_kme = cluster_kmeans(
 #     all_mods, model2_dict['2'], col_diag[0])
 # top_coeffs, odds_ratio_matrix, model, cm = logistic_regression(
 #     x_train, x_test, y_train, y_test)
+
+# ASD Only Clustering
+df_asd = all_mods.loc[all_mods[col_diag[0]] == 0]
+col_coding_new.append('Module')
+scores_pca = pca_2(df_asd[col_coding_new])
+cluster_kmeans(df_asd[col_coding_new], scores_pca, sa_items, rrb_items)
+
+
+rrb_items = ['echo', 'stereo_lang', 'sensory',
+                     'mannerisms', 'selfinj', 'rrb', 'active', 'agg']
+sa_items = ['inton', 'gest', 'eye_cont', 'facial_exp', 'shared_enj',
+                'soc_overture', 'exp_attn', 'response','imag', 'anx']
+
+# max_score, opti_n_clusters = cluster_parameters_select(
+#    "k_means", df_asd[col_coding_new])
+#df_cluster_kme, df_cluster_labeled_kme = cluster_kmeans(
+#    opti_n_clusters, df_asd, col_coding_new)
+
